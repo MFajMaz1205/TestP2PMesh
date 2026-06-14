@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesh_OS Chat - Prototype P2P Intégral (V3 Stable)</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/lib/radix.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/lib/radisk.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/lib/store.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/lib/rindexed.js"></script>
+
+    <style>
+        /* --- ARCHITECTURE VISUELLE : GLASSMORPHISM & NEON STARTUP --- */
+        :root {
+            --bg-dark: #09090b;
+            --glass-bg: rgba(24, 24, 27, 0.78);
+            --glass-border: rgba(63, 63, 70, 0.75);
+            --neon-cyan: #00f3ff;
+            --neon-glow: rgba(0, 243, 255, 0.25);
+            --text-main: #fafafa;
+            --text-muted: #a1a1aa;
+            --msg-sent: rgba(0, 243, 255, 0.12);
+            --msg-received: rgba(39, 39, 42, 0.75);
+            --danger: #f43f5e;
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 243, 255, 0.05), transparent 30%),
+                radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.04), transparent 35%);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .hidden { display: none !important; }
+
+        /* --- SÉCURITÉ & AUTHENTIFICATION --- */
+        #auth-screen {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            background: rgba(9, 9, 11, 0.85);
+        }
+        .auth-box {
+            width: 420px;
+            padding: 35px;
+            text-align: center;
+        }
+        .auth-box h2 {
+            font-size: 1.8rem;
+            color: var(--neon-cyan);
+            text-shadow: 0 0 8px var(--neon-glow);
+            margin-bottom: 25px;
+            letter-spacing: 2px;
+        }
+        
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            border-radius: 6px;
+            outline: none;
+            transition: all 0.3s;
+        }
+        input[type="text"]:focus, input[type="password"]:focus {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 10px var(--neon-glow);
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+            font-size: 0.8rem;
+        }
+        .btn-primary { background: transparent; color: var(--neon-cyan); border: 1px solid var(--neon-cyan); }
+        .btn-primary:hover { background: var(--neon-glow); box-shadow: 0 0 15px var(--neon-glow); }
+        .btn-secondary { background: transparent; color: var(--text-muted); border: 1px solid var(--glass-border); }
+        .btn-secondary:hover { background: rgba(255, 255, 255, 0.05); }
+        .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+        .btn-danger:hover { background: rgba(244, 63, 94, 0.15); }
+        .btn-success { background: transparent; color: var(--success); border: 1px solid var(--success); }
+        .btn-success:hover { background: rgba(16, 185, 129, 0.15); }
+
+        /* --- INTERFACE PRINCIPALE --- */
+        #app-screen {
+            width: 95vw;
+            height: 92vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 360px;
+            border-right: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            background: rgba(15, 15, 20, 0.45);
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .user-meta { display: flex; flex-direction: column; }
+        .user-meta h3 { color: var(--neon-cyan); font-size: 1.1rem; }
+        .user-meta span { color: var(--text-muted); font-size: 0.8rem; }
+
+        .search-area {
+            padding: 15px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+        .search-area button { width: 100%; margin-top: 5px; }
+
+        /* Gestion des sections / Onglets de la barre latérale */
+        .section-title {
+            padding: 12px 20px 6px 20px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--neon-cyan);
+            background: rgba(0,0,0,0.2);
+        }
+        .list-container {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .contact-item, .request-item {
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+            transition: background 0.2s;
+        }
+        .contact-item { cursor: pointer; }
+        .contact-item:hover, .contact-item.active {
+            background: rgba(0, 243, 255, 0.04);
+            border-left: 3px solid var(--neon-cyan);
+        }
+        .item-title { font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        .item-sub { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;}
+        
+        .request-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .request-actions button { padding: 4px 10px; font-size: 0.7rem; }
+
+        /* Conteneur de Chat principal */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0,0,0,0.2);
+        }
+        .chat-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(15, 15, 20, 0.4);
+        }
+        .chat-actions button {
+            background: transparent;
+            color: var(--text-main);
+            font-size: 1.2rem;
+            padding: 5px 10px;
+            margin-left: 5px;
+        }
+        .chat-actions button:hover { color: var(--neon-cyan); text-shadow: 0 0 5px var(--neon-cyan); }
+
+        .messages-display {
+            flex: 1;
+            padding: 25px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .msg-bubble {
+            max-width: 65%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            position: relative;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+        .msg-bubble.sent {
+            background: var(--msg-sent);
+            align-self: flex-end;
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-bottom-right-radius: 0;
+        }
+        .msg-bubble.received {
+            background: var(--msg-received);
+            align-self: flex-start;
+            border: 1px solid var(--glass-border);
+            border-bottom-left-radius: 0;
+        }
+        .msg-info { display: block; font-size: 0.65rem; color: var(--text-muted); text-align: right; margin-top: 4px; }
+        .msg-media { max-width: 100%; border-radius: 4px; margin-top: 5px; }
+
+        .chat-input-bar {
+            padding: 18px 25px;
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: rgba(9, 9, 11, 0.7);
+        }
+        .chat-input-bar input[type="text"] { margin-bottom: 0; flex: 1; border-radius: 24px; padding: 12px 20px; }
+
+        /* --- OVERLAY DE DIALOGUE AVANCÉ WEBRTC --- */
+        #call-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5000;
+            background: rgba(5, 5, 5, 0.96);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        #incoming-call-box {
+            text-align: center;
+            padding: 40px;
+            border: 1px solid var(--neon-cyan);
+            border-radius: 12px;
+            background: rgba(20,20,25,0.9);
+            box-shadow: 0 0 30px var(--neon-glow);
+        }
+        .video-streams { display: flex; gap: 25px; margin: 40px 0; }
+        video {
+            width: 480px;
+            height: 360px;
+            background: #000;
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            object-fit: cover;
+        }
+        video#local-video { border-color: var(--neon-cyan); }
+        .pulse { animation: pulseGlow 1.5s infinite; }
+        @keyframes pulseGlow { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.03); opacity: 0.6; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="auth-screen">
+        <div class="auth-box glass-panel">
+            <h2>MESH_OS // SECURE_CHAT</h2>
+            <div>
+                <input type="text" id="auth-alias" placeholder="Pseudo Public (Ex: Bob)">
+                <input type="text" id="auth-id" placeholder="ID unique (Ex: @bob_crypto)">
+                <input type="password" id="auth-pass" placeholder="Clé/Mot de passe de chiffrement">
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="handleLogin()" class="btn-primary" style="flex: 1;">Connexion</button>
+                <button onclick="handleRegister()" class="btn-secondary" style="flex: 1;">Créer un nœud</button>
+            </div>
+            <p id="auth-error-msg" style="color: var(--danger); font-size: 0.85rem; margin-top: 15px;"></p>
+        </div>
+    </div>
+
+    <div id="app-screen" class="glass-panel hidden">
+        
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <div class="user-meta">
+                    <h3 id="current-user-alias">---</h3>
+                    <span id="current-user-id">@---</span>
+                </div>
+                <button onclick="handleLogout()" class="btn-secondary" style="padding: 6px 12px; font-size: 0.75rem;">Sortir</button>
+            </header>
+
+            <div class="search-area">
+                <input type="text" id="search-peer-id" placeholder="Envoyer une invitation via @id...">
+                <button onclick="sendFriendRequest()" class="btn-primary">Envoyer la demande</button>
+                <div id="search-feedback" style="margin-top: 8px; font-size: 0.8rem; text-align: center;"></div>
+            </div>
+
+            <div class="section-title">Invitations reçues</div>
+            <div class="list-container" id="requests-display-node">
+                </div>
+
+            <div class="section-title">Canaux Sécurisés</div>
+            <div class="list-container" id="contacts-display-node">
+                </div>
+        </aside>
+
+        <main class="chat-container">
+            <header class="chat-header">
+                <div>
+                    <h3 id="active-chat-title">Aucune liaison active</h3>
+                    <p id="active-chat-status" style="font-size: 0.8rem; color: var(--text-muted);"></p>
+                </div>
+                <div class="chat-actions hidden" id="chat-action-buttons">
+                    <button onclick="initiateCallFlow('audio')" title="Appel Vocal">📞</button>
+                    <button onclick="initiateCallFlow('video')" title="Appel Visio">📹</button>
+                </div>
+            </header>
+
+            <div class="messages-display" id="messages-flow-node">
+                </div>
+
+            <footer class="chat-input-bar hidden" id="chat-interactive-footer">
+                <label for="media-file-input" style="cursor: pointer; font-size: 1.3rem;">📎</label>
+                <input type="file" id="media-file-input" class="hidden" accept="image/*" onchange="processMediaShare(event)">
+                <input type="text" id="main-message-input" placeholder="Écrire un message chiffré de bout en bout...">
+                <button onclick="triggerMessageSend()" class="btn-primary">Envoyer</button>
+            </footer>
+        </main>
+    </div>
+
+    <div id="call-overlay" class="hidden">
+        <div id="incoming-call-box" class="hidden">
+            <h2 class="pulse" style="color: var(--neon-cyan); margin-bottom: 20px;">🔊 APPEL ENTRANT DE LIAISON...</h2>
+            <p id="caller-identity-text" style="color: var(--text-main); margin-bottom: 25px; font-size: 1.1rem;"></p>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button onclick="acceptIncomingCall()" class="btn-success" style="padding: 12px 25px;">Décrocher</button>
+                <button onclick="rejectOrTerminateCall()" class="btn-danger" style="padding: 12px 25px;">Refuser</button>
+            </div>
+        </div>
+
+        <div id="active-call-streams" class="hidden" style="text-align: center;">
+            <div class="video-streams">
+                <video id="local-video" autoplay muted playsinline></video>
+                <video id="remote-video" autoplay playsinline></video>
+            </div>
+            <button onclick="rejectOrTerminateCall()" class="btn-danger" style="padding: 12px 30px;">Interrompre le flux</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURATION MULTI-RELAIS ET ARYTHMIE DES NOEUDS GUN ---
+        // Utilisation de 3 nœuds relais simultanés pour éliminer tout besoin de rafraîchir la page
+        const gunInstance = Gun({
+            peers: [
+                'https://gun-manhattan.herokuapp.com/gun',
+                'https://gunjs.herokuapp.com/gun',
+                'https://relay.peer.ooo/gun'
+            ],
+            localStorage: true,
+            radisk: true
+        });
+
+        const userSession = gunInstance.user().recall({ sessionStorage: true });
+
+        let targetPeerNode = { pub: null, id: null, secretKey: null };
+        let localMediaStream = null;
+        let rtcPeerConnection = null;
+        let activeRoomListener = null;
+        let currentRoomSignature = null;
+
+        const stunConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        // --- 2. INITIALISATION ET MANAGEMENT DE SESSION ---
+        gunInstance.on('auth', async () => {
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+
+            userSession.get('profile_metadata').once((meta) => {
+                if(meta) {
+                    document.getElementById('current-user-alias').innerText = meta.alias;
+                    document.getElementById('current-user-id').innerText = meta.id;
+                }
+            });
+
+            syncContactsAndRooms();
+            listenForHandshakeRequests(); 
+            setupWebRTCSignalingChannel(); 
+        });
+
+        function handleRegister() {
+            const alias = document.getElementById('auth-alias').value.trim();
+            let uniqueId = document.getElementById('auth-id').value.trim();
+            const password = document.getElementById('auth-pass').value;
+
+            if (!alias || !uniqueId || !password) return alert("Veuillez remplir l'ensemble des champs cryptographiques.");
+            if (!uniqueId.startsWith('@')) uniqueId = '@' + uniqueId;
+
+            const feedback = document.getElementById('auth-error-msg');
+            feedback.innerText = "Recherche d'empreinte d'identité sur le réseau...";
+
+            gunInstance.get('global_mesh_directory').get(uniqueId).once((existingPub) => {
+                if (existingPub) {
+                    feedback.innerText = "Cet identifiant unique possède déjà un certificat racine.";
+                    return;
+                }
+
+                userSession.create(uniqueId, password, (status) => {
+                    if (status.err) {
+                        feedback.innerText = status.err;
+                    } else {
+                        userSession.auth(uniqueId, password, () => {
+                            userSession.get('profile_metadata').put({ alias: alias, id: uniqueId });
+                            gunInstance.get('global_mesh_directory').get(uniqueId).put(userSession.is.pub);
+                        });
+                    }
+                });
+            });
+        }
+
+        function handleLogin() {
+            let uniqueId = document.getElementById('auth-id').value.trim();
+            const password = document.getElementById('auth-pass').value;
+            if (!uniqueId.startsWith('@')) uniqueId = '@' + uniqueId;
+
+            userSession.auth(uniqueId, password, (status) => {
+                if (status.err) document.getElementById('auth-error-msg').innerText = "Certificat invalide ou erreur réseau.";
+            });
+        }
+
+        function handleLogout() { userSession.leave(); location.reload(); }
+
+        // --- 3. SYSTEME ASYMETRIQUE DE DEMANDE / DE LIAISON D'AMITIÉ (FIXÉ) ---
+        
+        async function sendFriendRequest() {
+            let searchId = document.getElementById('search-peer-id').value.trim();
+            if (!searchId.startsWith('@')) searchId = '@' + searchId;
+
+            const feedback = document.getElementById('search-feedback');
+            feedback.style.color = "var(--neon-cyan)";
+            feedback.innerText = "Négociation du protocole réseau...";
+
+            gunInstance.get('global_mesh_directory').get(searchId).once(async (targetPub) => {
+                if (!targetPub) {
+                    feedback.style.color = "var(--danger)";
+                    feedback.innerText = "Identifiant introuvable.";
+                    return;
+                }
+                if (targetPub === userSession.is.pub) {
+                    feedback.style.color = "var(--danger)";
+                    feedback.innerText = "Liaison réflexive impossible.";
+                    return;
+                }
+
+                const myMeta = await userSession.get('profile_metadata').then();
+                
+                // Envoi de l'invitation dans la boîte d'échange de l'hôte distant
+                gunInstance.get('mesh_handshakes').get(targetPub).get(userSession.is.pub).put({
+                    pub: userSession.is.pub,
+                    alias: myMeta.alias,
+                    id: myMeta.id,
+                    status: 'pending'
+                });
+
+                feedback.style.color = "var(--success)";
+                feedback.innerText = "Demande émise. En attente de validation.";
+                document.getElementById('search-peer-id').value = '';
+            });
+        }
+
+        function listenForHandshakeRequests() {
+            gunInstance.get('mesh_handshakes').get(userSession.is.pub).map().on(async (request, senderPub) => {
+                if (!request) return;
+
+                const reqNodeId = `req-${senderPub}`;
+                let reqElement = document.getElementById(reqNodeId);
+
+                if (request.status === 'pending') {
+                    if (!reqElement) {
+                        reqElement = document.createElement('div');
+                        reqElement.id = reqNodeId;
+                        reqElement.className = 'request-item glass-panel';
+                        document.getElementById('requests-display-node').appendChild(reqElement);
+                    }
+                    reqElement.innerHTML = `
+                        <div class="item-title">${request.alias}</div>
+                        <div class="item-sub">${request.id}</div>
+                        <div class="request-actions">
+                            <button class="btn-success" onclick="respondToRequest('${senderPub}', 'accept')">Accepter</button>
+                            <button class="btn-danger" onclick="respondToRequest('${senderPub}', 'decline')">Refuser</button>
+                        </div>
+                    `;
+                } else if (request.status === 'accepted') {
+                    // Si l'autre personne a accepté une demande que nous avions envoyée, on l'ajoute directement
+                    userSession.get('trusted_contacts').get(senderPub).put({
+                        pub: senderPub, alias: request.alias, id: request.id
+                    });
+                    if (reqElement) reqElement.remove();
+                } else if (request.status === 'declined' && reqElement) {
+                    reqElement.remove();
+                }
+            });
+        }
+
+        async function respondToRequest(senderPub, decision) {
+            const reqElement = document.getElementById(`req-${senderPub}`);
+            if (reqElement) reqElement.remove();
+
+            if (decision === 'accept') {
+                const myMeta = await userSession.get('profile_metadata').then();
+                
+                // 1. On informe l'émetteur que la liaison est acceptée
+                gunInstance.get('mesh_handshakes').get(senderPub).get(userSession.is.pub).put({
+                    pub: userSession.is.pub, alias: myMeta.alias, id: myMeta.id, status: 'accepted'
+                });
+
+                // 2. On change notre statut local pour nettoyer l'interface
+                gunInstance.get('mesh_handshakes').get(userSession.is.pub).get(senderPub).get('status').put('accepted');
+
+                // 3. On enregistre l'utilisateur émetteur dans nos contacts sécurisés
+                const senderMeta = await gunInstance.get('~' + senderPub).get('profile_metadata').then();
+                userSession.get('trusted_contacts').get(senderPub).put({
+                    pub: senderPub, alias: senderMeta.alias, id: senderMeta.id
+                });
+            } else {
+                gunInstance.get('mesh_handshakes').get(userSession.is.pub).get(senderPub).get('status').put('declined');
+            }
+        }
+
+        function syncContactsAndRooms() {
+            const displayContainer = document.getElementById('contacts-display-node');
+
+            userSession.get('trusted_contacts').map().on((contactData) => {
+                if (!contactData || !contactData.pub) return;
+
+                let existingItem = document.getElementById(`item-${contactData.pub}`);
+                if (!existingItem) {
+                    existingItem = document.createElement('div');
+                    existingItem.id = `item-${contactData.pub}`;
+                    existingItem.className = 'contact-item';
+                    displayContainer.appendChild(existingItem);
+                }
+
+                existingItem.innerHTML = `
+                    <div class="item-title"><span>${contactData.alias}</span></div>
+                    <div class="item-sub">${contactData.id}</div>
+                `;
+                
+                existingItem.onclick = () => {
+                    document.querySelectorAll('.contact-item').forEach(el => el.classList.remove('active'));
+                    existingItem.classList.add('active');
+                    launchSecureChatRoom(contactData);
+                };
+            });
+        }
+
+        // --- 4. ENGINE DE MESSAGERIE AUTOMATIQUE ET RÉACTIF ---
+        async function launchSecureChatRoom(contact) {
+            targetPeerNode.pub = contact.pub;
+            targetPeerNode.id = contact.id;
+
+            document.getElementById('active-chat-title').innerText = `${contact.alias} ${contact.id}`;
+            document.getElementById('active-chat-status').innerText = "Canal P2E Chiffré Actif";
+            document.getElementById('chat-action-buttons').classList.remove('hidden');
+            document.getElementById('chat-interactive-footer').classList.remove('hidden');
+            
+            const messagesWindow = document.getElementById('messages-flow-node');
+            messagesWindow.innerHTML = '';
+
+            if (activeRoomListener) activeRoomListener.off();
+
+            const remoteUserGraph = await gunInstance.get('~' + contact.pub).then();
+            targetPeerNode.secretKey = await SEA.secret(remoteUserGraph.epub, userSession._.sea);
+
+            currentRoomSignature = [userSession.is.pub, contact.pub].sort().join('///');
+
+            // Écoute temps réel absolue du flux de messages
+            activeRoomListener = gunInstance.get('secure_mesh_rooms').get(currentRoomSignature).map();
+            activeRoomListener.on(async (encryptedPayload, internalId) => {
+                if (!encryptedPayload) return;
+
+                const clearData = await SEA.decrypt(encryptedPayload, targetPeerNode.secretKey);
+                if (clearData && !document.getElementById(`msg-${internalId}`)) {
+                    appendMessageBubble(clearData, internalId, clearData.author === userSession.is.pub);
+                }
+            });
+        }
+
+        async function triggerMessageSend() {
+            const textNode = document.getElementById('main-message-input');
+            const dataString = textNode.value.trim();
+            if (!dataString || !targetPeerNode.secretKey) return;
+
+            textNode.value = '';
+            executePayloadTransmission(dataString, 'text');
+        }
+
+        async function executePayloadTransmission(content, mode) {
+            const packet = {
+                author: userSession.is.pub,
+                type: mode,
+                body: content,
+                timestamp: Date.now()
+            };
+
+            const encryptedData = await SEA.encrypt(packet, targetPeerNode.secretKey);
+            gunInstance.get('secure_mesh_rooms').get(currentRoomSignature).set(encryptedData);
+        }
+
+        function appendMessageBubble(msg, uid, isSender) {
+            const displayFrame = document.getElementById('messages-flow-node');
+            const bubble = document.createElement('div');
+            bubble.id = `msg-${uid}`;
+            bubble.className = `msg-bubble ${isSender ? 'sent' : 'received'}`;
+
+            const formattedTime = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            let htmlPayload = '';
+            if (msg.type === 'text') {
+                htmlPayload = `<div>${escapeHtml(msg.body)}</div>`;
+            } else if (msg.type === 'image') {
+                htmlPayload = `<img src="${msg.body}" class="msg-media" alt="Média chiffré">`;
+            }
+
+            bubble.innerHTML = `${htmlPayload} <span class="msg-info">${formattedTime} ${isSender ? '✓✓' : ''}</span>`;
+            displayFrame.appendChild(bubble);
+            displayFrame.scrollTop = displayFrame.scrollHeight;
+        }
+
+        function processMediaShare(event) {
+            const file = event.target.files[0];
+            if (!file || !targetPeerNode.secretKey) return;
+
+            const fileProcessingReader = new FileReader();
+            fileProcessingReader.onload = (e) => executePayloadTransmission(e.target.result, 'image');
+            fileProcessingReader.readAsDataURL(file);
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        // --- 5. CORE DE SIGNALISATION WEBRTC DETERMINISTE SANS DOUBLE APPEL ---
+        
+        function setupWebRTCSignalingChannel() {
+            // Écouteur global des requêtes de signalisation affectées à notre nœud unique
+            gunInstance.get('webrtc_sessions').map().on(async (sessionString, roomKey) => {
+                if (!sessionString || !roomKey.includes(userSession.is.pub)) return;
+
+                const keys = roomKey.split('///');
+                const senderPub = keys.find(k => k !== userSession.is.pub);
+                if(!senderPub) return;
+
+                const remoteNode = await gunInstance.get('~' + senderPub).then();
+                const sessionSecret = await SEA.secret(remoteNode.epub, userSession._.sea);
+                const session = await SEA.decrypt(sessionString, sessionSecret);
+
+                if (!session || session.sender === userSession.is.pub) return;
+
+                // AUTOMATE D'ÉTAT DE L'APPEL ENTRANT (CALLEE)
+                if (session.state === 'ringing' && (!rtcPeerConnection)) {
+                    currentRoomSignature = roomKey;
+                    targetPeerNode.pub = senderPub;
+                    targetPeerNode.secretKey = sessionSecret;
+
+                    document.getElementById('call-overlay').classList.remove('hidden');
+                    document.getElementById('incoming-call-box').classList.remove('hidden');
+                    document.getElementById('active-call-streams').classList.add('hidden');
+                    document.getElementById('caller-identity-text').innerText = `Liaison initiée par un pair cryptographique anonyme.`;
+                    
+                    // Chargement de l'offre SDP distante immédiatement en tâche de fond
+                    targetPeerNode.storedOffer = session.offer;
+                } 
+                else if (session.state === 'active' && rtcPeerConnection && rtcPeerConnection.signalingState === "have-local-offer") {
+                    // ÉTATS DE RÉPONSE POUR L'ÉMETTEUR DE L'APPEL (CALLER)
+                    await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(session.answer)));
+                }
+                else if (session.state === 'ice-trickle' && rtcPeerConnection) {
+                    if (session.candidate) {
+                        await rtcPeerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(session.candidate))).catch(e => {});
+                    }
+                }
+                else if (session.state === 'terminated') {
+                    cleanHardwareAndRTC();
+                }
+            });
+        }
+
+        // Flux initiateur (L'appelant génère l'offre unique)
+        async function initiateCallFlow(mode) {
+            if (!targetPeerNode.pub) return;
+
+            document.getElementById('call-overlay').classList.remove('hidden');
+            document.getElementById('incoming-call-box').classList.add('hidden');
+            document.getElementById('active-call-streams').classList.remove('hidden');
+
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ video: mode === 'video', audio: true });
+            document.getElementById('local-video').srcObject = localMediaStream;
+
+            rtcPeerConnection = new RTCPeerConnection(stunConfiguration);
+            localMediaStream.getTracks().forEach(track => rtcPeerConnection.addTrack(track, localMediaStream));
+
+            rtcPeerConnection.ontrack = (e) => {
+                document.getElementById('remote-video').srcObject = e.streams[0];
+            };
+
+            rtcPeerConnection.onicecandidate = async (e) => {
+                if (e.candidate) {
+                    const encSignal = await SEA.encrypt({ state: 'ice-trickle', candidate: JSON.stringify(e.candidate), sender: userSession.is.pub }, targetPeerNode.secretKey);
+                    gunInstance.get('webrtc_sessions').get(currentRoomSignature).put(encSignal);
+                }
+            };
+
+            const offer = await rtcPeerConnection.createOffer();
+            await rtcPeerConnection.setLocalDescription(offer);
+
+            const encOffer = await SEA.encrypt({
+                state: 'ringing',
+                offer: JSON.stringify(offer),
+                sender: userSession.is.pub
+            }, targetPeerNode.secretKey);
+
+            gunInstance.get('webrtc_sessions').get(currentRoomSignature).put(encOffer);
+        }
+
+        // Décrocher (Le destinataire répond à l'offre existante sans en recréer une)
+        async function acceptIncomingCall() {
+            document.getElementById('incoming-call-box').classList.add('hidden');
+            document.getElementById('active-call-streams').classList.remove('hidden');
+
+            localMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById('local-video').srcObject = localMediaStream;
+
+            rtcPeerConnection = new RTCPeerConnection(stunConfiguration);
+            localMediaStream.getTracks().forEach(track => rtcPeerConnection.addTrack(track, localMediaStream));
+
+            rtcPeerConnection.ontrack = (e) => {
+                document.getElementById('remote-video').srcObject = e.streams[0];
+            };
+
+            rtcPeerConnection.onicecandidate = async (e) => {
+                if (e.candidate) {
+                    const encSignal = await SEA.encrypt({ state: 'ice-trickle', candidate: JSON.stringify(e.candidate), sender: userSession.is.pub }, targetPeerNode.secretKey);
+                    gunInstance.get('webrtc_sessions').get(currentRoomSignature).put(encSignal);
+                }
+            };
+
+            // Configuration de la description distante avec l'offre sauvegardée
+            await rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(targetPeerNode.storedOffer)));
+            const answer = await rtcPeerConnection.createAnswer();
+            await rtcPeerConnection.setLocalDescription(answer);
+
+            const encAnswer = await SEA.encrypt({
+                state: 'active',
+                answer: JSON.stringify(answer),
+                sender: userSession.is.pub
+            }, targetPeerNode.secretKey);
+
+            gunInstance.get('webrtc_sessions').get(currentRoomSignature).put(encAnswer);
+        }
+
+        async function rejectOrTerminateCall() {
+            if (currentRoomSignature && targetPeerNode.secretKey) {
+                const encTerm = await SEA.encrypt({ state: 'terminated', sender: userSession.is.pub }, targetPeerNode.secretKey);
+                gunInstance.get('webrtc_sessions').get(currentRoomSignature).put(encTerm);
+            }
+            cleanHardwareAndRTC();
+        }
+
+        function cleanHardwareAndRTC() {
+            if (rtcPeerConnection) { rtcPeerConnection.close(); rtcPeerConnection = null; }
+            if (localMediaStream) { localMediaStream.getTracks().forEach(track => track.stop()); localMediaStream = null; }
+            document.getElementById('call-overlay').classList.add('hidden');
+            document.getElementById('incoming-call-box').classList.add('hidden');
+            document.getElementById('active-call-streams').classList.add('hidden');
+            targetPeerNode.storedOffer = null;
+        }
+
+        document.getElementById('main-message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') triggerMessageSend();
+        });
+    </script>
+</body>
+</html>
